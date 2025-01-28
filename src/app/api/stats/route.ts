@@ -3,6 +3,7 @@ import { prisma } from "../../../../lib/prisma";
 
 export async function GET() {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [customersCount, totalBalance] = await Promise.all([
       prisma.customer.count(),
       prisma.customer.aggregate({

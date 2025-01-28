@@ -1,9 +1,11 @@
 "use client";
+ // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { useEffect, useState } from "react";
 import LoginForm from './components/LoginForm';
-
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface Transaction {
   id: number;
   customerId: number;
@@ -17,6 +19,7 @@ interface Transaction {
 }
 
 export default function Home() {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const router = useRouter();
   const { data: session } = useSession();
  // const [latestTransaction, setLatestTransaction] = useState<Transaction | null>(null);

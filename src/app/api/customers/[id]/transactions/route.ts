@@ -71,10 +71,13 @@ export async function POST(
       },
     });
 
-    // تحديث رصيد العميل
+    // تحديث رصيد العميل في حساب العملة الافتراضي
     const amountChange = type === 'debit' ? amount : -amount;
-    await prisma.customer.update({
-      where: { id: customerId },
+    await prisma.customerAccount.updateMany({
+      where: { 
+        customerId,
+        currency: 'SAR' // Assuming SAR is the default currency
+      },
       data: {
         balance: {
           increment: amountChange
