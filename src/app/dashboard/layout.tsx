@@ -27,6 +27,7 @@ export default function DashboardLayout({
     { href: "/dashboard/suppliers", label: "الموردين" },
     { href: "/dashboard/transactions", label: "المعاملات المالية" },
     { href: "/dashboard/reports", label: "التقارير" },
+    { href: "/dashboard/settings", label: "إعدادات المتجر" },
   ];
 
   const toggleSidebar = () => {
@@ -94,7 +95,7 @@ export default function DashboardLayout({
       </aside>
 
       {/* Main Content */}
-      <div className={`flex-1 flex flex-col dashboard-content overflow-y-auto ${isSidebarOpen ? 'lg:mr-64' : 'lg:mr-0'}`}>
+      <div className={`flex-1 flex flex-col  dashboard-content overflow-y-auto ${isSidebarOpen ? 'lg:mr-64' : 'lg:mr-0'}`}>
         <header className="bg-white shadow-md sticky top-0 z-20">
           <div className="mx-auto px-4 py-3 flex justify-between items-center">
             {/* Menu button for large screens */}
@@ -142,16 +143,16 @@ export default function DashboardLayout({
 
               {/* Dropdown content */}
               {isDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50">
+                <div className="absolute right-0 left-0 mt-2 w-lvw bg-red-950 text-white rounded-md shadow-lg py-1 z-50">
                   {menuItems.map((item) => (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      onClick={() => setIsDropdownOpen(false)}
-                    >
-                      {item.label}
-                    </Link>
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="block px-4 py-2 text-sm text-white hover:bg-gray-100"
+                    onClick={() => setIsDropdownOpen(false)}
+                  >
+                    {item.label}
+                  </Link>
                   ))}
                 </div>
               )}
@@ -162,7 +163,7 @@ export default function DashboardLayout({
             </div>
           </div>
         </header>
-        <main className="p-6">
+        <main className="p-2 md:p-6">
           {children}
         </main>
         

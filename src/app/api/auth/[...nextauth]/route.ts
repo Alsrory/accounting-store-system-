@@ -9,9 +9,9 @@ const prisma = new PrismaClient();
 // تعريف نوع المستخدم المخصص
 declare module "next-auth" {
   interface User {
-    id: number;
+    id: string;
     username: string;
-    name: string;
+    name: string | null;
     role: string;
   }
   
@@ -25,7 +25,7 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     role?: string;
-    id?: number;
+    id?: string;
   }
 }
 
@@ -42,7 +42,7 @@ const authOptions: NextAuthOptions = {
           throw new Error("يرجى إدخال اسم المستخدم وكلمة المرور");
         }
 
-        const user = await prisma.user.findUnique({
+        const user = await prisma.user.findFirst({
           where: {
             username: credentials.username,
           },
@@ -78,7 +78,7 @@ const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         session.user.role = token.role as string;
-        session.user.id = token.id as number;
+        session.user.id = token.id as string;
       }
       return session;
     },

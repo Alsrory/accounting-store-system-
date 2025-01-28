@@ -27,8 +27,23 @@ export async function GET() {
       },
     });
 
+    // إنشاء عميل افتراضي
+    const defaultCustomer = await prisma.customer.create({
+      data: {
+        name: "عميل افتراضي",
+        phone: "0123456789",
+        accounts: {
+          create: [
+            { currency: "LOCAL", balance: 0 },
+            { currency: "SAR", balance: 0 },
+            { currency: "USD", balance: 0 }
+          ]
+        }
+      }
+    });
+
     return NextResponse.json({
-      message: "تم إنشاء المدير بنجاح",
+      message: "تم إعداد النظام بنجاح",
       user: {
         id: admin.id,
         username: admin.username,
@@ -36,11 +51,12 @@ export async function GET() {
         email: admin.email,
         role: admin.role,
       },
+      customer: defaultCustomer
     });
   } catch (error) {
-    console.error("Error creating admin:", error);
+    console.error("Error setting up system:", error);
     return NextResponse.json(
-      { error: "حدث خطأ أثناء إنشاء المدير" },
+      { error: "حدث خطأ أثناء إعداد النظام" },
       { status: 500 }
     );
   }
