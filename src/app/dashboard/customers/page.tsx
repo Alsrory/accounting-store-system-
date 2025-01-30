@@ -1169,7 +1169,7 @@ export default function CustomersPage() {
                     setEditingTransaction(null);
                     setNewTransaction({
                       type: "credit",
-                      amount: "",
+                      amount: 0,
                       description: "",
                     });
                   }}
