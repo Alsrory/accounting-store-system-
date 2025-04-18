@@ -47,5 +47,8 @@ export default function Home() {
     return <LoginForm />;
   }
 
-  return <LoginForm />;
+  return <> <LoginForm />;
+
+  </>
+ 
 }

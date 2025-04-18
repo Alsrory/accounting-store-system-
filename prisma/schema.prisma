@@ -1,11 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["interactiveTransactions"]
 }
 
 datasource db {
   provider = "postgresql"
-  url = env("POSTGRES_PRISMA_URL") // uses connection pooling
-  directUrl = env("POSTGRES_URL_NON_POOLING") // uses a direct connection
+  url      = env("DATABASE_URL")
+  directUrl = env("POSTGRES_URL_NON_POOLING")
+  relationMode = "prisma"
 }
 
 model Account {
@@ -35,19 +37,52 @@ model Session {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model Store {
+  id             String       @id @default(cuid())
+  name           String
+  description    String?
+  logo           String?
+  owner          User         @relation("StoreOwner", fields: [ownerId], references: [id])
+  ownerId        String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String
+  customers      Customer[]
+  suppliers      Supplier[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId])
+}
+
+model Organization {
+  id          String     @id @default(cuid())
+  name        String
+  users       User[]
+  stores      Store[]
+  customers   Customer[]
+  suppliers   Supplier[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
 model User {
-  id            String    @id @default(cuid())
-  username      String    @unique
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
-  password      String
-  role          String    @default("user")
-  accounts      Account[]
-  sessions      Session[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id             String     @id @default(cuid())
+  name           String?
+  username       String?    @unique
+  password       String?
+  email          String?    @unique
+  emailVerified  DateTime?
+  image          String?
+  role           String     @default("user")
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String
+  store          Store?     @relation("StoreOwner")
+  accounts       Account[]
+  sessions       Session[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([organizationId])
 }
 
 model VerificationToken {
@@ -56,26 +91,34 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+  @@index([expires])
 }
 
 model Customer {
-  id          Int           @id @default(autoincrement())
-  name        String
-  phone       String?
-  email       String?
-  address     String?
-  accounts    CustomerAccount[]
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  transactions Transaction[]
+  id              Int          @id @default(autoincrement())
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  organizationId  String
+  store           Store        @relation(fields: [storeId], references: [id])
+  storeId         String
+  name            String
+  phone           String?
+  email           String?
+  address         String?
+  accounts        CustomerAccount[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  transactions    Transaction[]
+
+  @@index([organizationId, storeId])
 }
 
 model CustomerAccount {
   id          Int       @id @default(autoincrement())
-  customerId  Int
   customer    Customer  @relation(fields: [customerId], references: [id])
-  currency    String    // "SAR", "USD", "LOCAL"
-  balance     Float     @default(0)
+  customerId  Int
+  currency    String    @db.VarChar(5) // "SAR" أو "LOCAL"
+  balance     Decimal   @default(0)
+  type        String    @db.VarChar(10) // "credit" أو "debit"
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -83,36 +126,35 @@ model CustomerAccount {
 }
 
 model Supplier {
-  id           Int       @id @default(autoincrement())
-  name         String
-  phone        String?
-  email        String?
-  address      String?
-  balance      Float     @default(0)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  transactions Transaction[]
+  id              Int          @id @default(autoincrement())
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  organizationId  String
+  store           Store        @relation(fields: [storeId], references: [id])
+  storeId         String
+  name            String
+  phone           String?
+  email           String?
+  address         String?
+  balance         Decimal      @default(0)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  transactions    Transaction[]
+
+  @@index([organizationId, storeId])
 }
 
 model Transaction {
   id          Int       @id @default(autoincrement())
-  type        String    // دائن أو مدين
-  amount      Float
-  description String?
-  date        DateTime  @default(now())
-  customerId  Int?
-  supplierId  Int?
   customer    Customer? @relation(fields: [customerId], references: [id])
+  customerId  Int?
   supplier    Supplier? @relation(fields: [supplierId], references: [id])
-}
+  supplierId  Int?
+  type        String    // "credit" أو "debit"
+  amount      Decimal
+  description String?
+  date        DateTime  @default(now()) @db.Timestamp(6)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-model StoreSettings {
-  id        Int      @id @default(autoincrement())
-  storeName String
-  logo      String?
-  address   String?
-  phone     String?
-  email     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  @@index([customerId, date])
 }

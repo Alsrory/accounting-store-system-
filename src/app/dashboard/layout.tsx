@@ -3,6 +3,8 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import Link from "next/link";
+ import { UserGroupIcon } from '@heroicons/react/24/outline';
+// import {UserGroupIcon} from 'lucide-react'
 
 export default function DashboardLayout({
   children,
@@ -90,6 +92,15 @@ export default function DashboardLayout({
                 {item.label}
               </Link>
             ))}
+            {session?.user?.role === 'admin' && (
+              <Link
+                href="/dashboard/users"
+                className="flex items-center px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md group"
+              >
+                <UserGroupIcon className="w-5 h-5 ml-3" />
+                <span>إدارة المستخدمين</span>
+              </Link>
+            )}
           </nav>
         </div>
       </aside>
@@ -154,6 +165,15 @@ export default function DashboardLayout({
                     {item.label}
                   </Link>
                   ))}
+                  {session?.user?.role === 'admin' && (
+                    <Link
+                      href="/dashboard/users"
+                      className="block px-4 py-2 text-sm text-white hover:bg-gray-100"
+                      onClick={() => setIsDropdownOpen(false)}
+                    >
+                      إدارة المستخدمين
+                    </Link>
+                  )}
                 </div>
               )}
             </div>

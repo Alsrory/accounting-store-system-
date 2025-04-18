@@ -1,10 +1,24 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "../../../../lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/[...nextauth]/route";
 
 // جلب جميع العملاء
 export async function GET() {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.storeId) {
+      return NextResponse.json(
+        { error: "لم يتم العثور على متجر مرتبط بحسابك" },
+        { status: 401 }
+      );
+    }
+
     const customers = await prisma.customer.findMany({
+      where: {
+        storeId: session.user.storeId,
+        organizationId: session.user.organizationId!
+      },
       include: {
         accounts: true,
         transactions: true
@@ -18,7 +32,7 @@ export async function GET() {
     const customersWithCurrentBalance = customers.map(customer => {
       const currentBalance = customer.transactions.reduce((balance, t) => {
         if (t.type === 'debit') {
-          return balance + t.amount;
+          return  balance + t.amount;
         } else { // credit
           return balance - t.amount;
         }
@@ -41,57 +55,56 @@ export async function GET() {
 }
 
 // إضافة عميل جديد
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const data = await req.json();
-    const { name, phone, email, address, accounts } = data;
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.storeId) {
+      return NextResponse.json(
+        { error: "لم يتم العثور على متجر مرتبط بحسابك" },
+        { status: 401 }
+      );
+    }
 
-    if (!name?.trim()) {
+    const data = await req.json();
+    const { name, phone, email, address, accountType = 'LOCAL' } = data;
+
+    if (!name) {
       return NextResponse.json(
         { error: "اسم العميل مطلوب" },
         { status: 400 }
       );
     }
 
-    const customer = await prisma.$transaction(async (prisma) => {
-      // Create customer
-      const newCustomer = await prisma.customer.create({
-        data: {
-          name: name.trim(),
-          phone: phone?.trim() || null,
-          email: email?.trim() || null,
-          address: address?.trim() || null,
-        },
-      });
-
-      // Create account if provided
-      if (accounts?.[0]) {
-        await prisma.customerAccount.create({
-          data: {
-            customerId: newCustomer.id,
-            currency: "SAR",
-            balance: 0 // الرصيد الافتتاحي يكون صفر
-          }
-        });
+    // إنشاء العميل
+    const customer = await prisma.customer.create({
+      data: {
+        name: name.trim(),
+        phone: phone?.trim() || null,
+        email: email?.trim() || null,
+        address: address?.trim() || null,
+        storeId: session.user.storeId,
+        organizationId: session.user.organizationId!,
       }
-
-      // Return customer with accounts
-      return await prisma.customer.findUnique({
-        where: { id: newCustomer.id },
-        include: { 
-          accounts: true,
-          transactions: true
-        }
-      });
     });
 
-    // حساب الرصيد الحالي
-    const customerWithBalance = {
-      ...customer,
-      currentBalance: 0 // عميل جديد، الرصيد صفر
-    };
+    // إنشاء حساب افتراضي للعميل
+    await prisma.customerAccount.create({
+      data: {
+        customerId: customer.id,
+        currency: accountType,
+        balance: 0,
+        type: "credit"
+      }
+    });
 
-    return NextResponse.json(customerWithBalance);
+    return NextResponse.json({
+      message: "تم إضافة العميل بنجاح",
+      customer: {
+        ...customer,
+        currentBalance: 0
+      }
+    });
+
   } catch (error) {
     console.error("Error creating customer:", error);
     return NextResponse.json(

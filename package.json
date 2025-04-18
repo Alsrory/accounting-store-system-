@@ -10,7 +10,10 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@prisma/client": "^6.0.1",
+    "@auth/prisma-adapter": "^2.7.4",
+    "@heroicons/react": "^2.2.0",
+    "@prisma/client": "^6.3.1",
+    "@radix-ui/react-slot": "^1.1.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/jspdf": "^2.0.0",
     "@types/pdfjs-dist": "^2.10.378",
@@ -26,10 +29,12 @@
     "next-auth": "^4.24.11",
     "react": "^18",
     "react-dom": "^18",
+    "react-hot-toast": "^2.5.1",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@types/next-auth": "^3.15.0",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",

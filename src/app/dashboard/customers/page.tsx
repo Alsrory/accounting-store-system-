@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { toast } from "react-hot-toast";
 import { ArrowBigDown, ArrowBigUp } from "lucide-react";
 
 interface CustomerAccount {
@@ -29,18 +31,13 @@ interface Transaction {
 }
 
 export default function CustomersPage() {
-  const [currentBalance, setcurrentBalance] = useState(0);
-  const { data: session } = useSession();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showTransactions, setShowTransactions] = useState(false);
-  const [showAddTransactionForm, setShowAddTransactionForm] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [accountType, setAccountType] = useState<'LOCAL' | 'SAR'>('LOCAL');
   const [formData, setFormData] = useState<{
     name: string;
     phone: string;
@@ -49,7 +46,7 @@ export default function CustomersPage() {
     accounts: Array<{
       id: number;
       currency: string;
-      balance: string;
+      balance: number;
       type: string;
     }>;
   }>({
@@ -57,8 +54,18 @@ export default function CustomersPage() {
     phone: "",
     email: "",
     address: "",
-    accounts: [{ id: 1, currency: "SAR", balance: "0", type: "credit" }]
+    accounts: [
+      { id: 1, currency: "SAR", balance: 0, type: "credit" },
+      { id: 2, currency: "LOCAL", balance: 0, type: "credit" }
+    ]
   });
+  const [currentBalance, setcurrentBalance] = useState(0);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showTransactions, setShowTransactions] = useState(false);
+  const [showAddTransactionForm, setShowAddTransactionForm] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [editingTransaction, setEditingTransaction] = useState<any>(null);
   const [newTransaction, setNewTransaction] = useState<Partial<Transaction>>({
     type: 'credit',
     amount: 0,
@@ -70,8 +77,16 @@ export default function CustomersPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // إضافة state للمعاملة المراد تعديلها
-  const [editingTransaction, setEditingTransaction] = useState<any>(null);
+  const { data: session } = useSession();
+  const router = useRouter();
+
+  // التحقق من وجود متجر للمستخدم
+  useEffect(() => {
+    if (session && !session.user?.storeId) {
+      toast.error('لم يتم العثور على متجر مرتبط بحسابك');
+      router.push('/dashboard');
+    }
+  }, [session, router]);
 
   // جلب بيانات العملاء
   const fetchCustomers = async () => {
@@ -87,6 +102,12 @@ export default function CustomersPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (session?.user?.storeId) {
+      fetchCustomers();
+    }
+  }, [session]);
 
   // جلب معاملات العميل
   const fetchCustomerTransactions = async (customerId: number) => {
@@ -308,79 +329,70 @@ export default function CustomersPage() {
     };
   }, [newTransaction.amount]);
 
-  // إضافة عميل جديد
+  // معالجة تقديم النموذج
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
     try {
       setIsSubmitting(true);
+      setError("");
 
-      // تحويل الرصيد إلى رقم وتطبيق الإشارة حسب النوع
-      const balance = parseInt(formData.accounts[0].balance);
-      const finalBalance = formData.accounts[0].type === 'debit' ? -Math.abs(balance) : Math.abs(balance);
+      const response = await fetch('/api/customers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formData.name.trim(),
+          phone: formData.phone?.trim() || "",
+          email: formData.email?.trim() || "",
+          address: formData.address?.trim() || "",
+          accounts: formData.accounts.map(account => ({
+            currency: account.currency,
+            balance: Number(account.balance),
+            type: account.type
+          }))
+        }),
+      });
 
-      const response = await fetch(
-        editingCustomer ? `/api/customers/${editingCustomer.id}` : "/api/customers",
-        {
-          method: editingCustomer ? "PUT" : "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name: formData.name,
-            phone: formData.phone,
-            email: formData.email,
-            address: formData.address,
-            accounts: [
-              {
-                currency: formData.accounts[0]?.currency || "SAR",
-                balance: finalBalance,
-                type: formData.accounts[0]?.type || "credit"
-              }
-            ]
-          }),
-        }
-      );
+      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error("Failed to save customer");
+        throw new Error(data.error || 'حدث خطأ أثناء إضافة العميل');
       }
 
-      // إذا كان هناك رصيد افتتاحي، أضف معاملة افتتاحية
-      if (finalBalance !== 0) {
-        const transactionResponse = await fetch("/api/transactions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            customerId: (await response.json()).id,
-            type: formData.accounts[0].type,
-            amount: Math.abs(finalBalance),
-            description: "رصيد افتتاحي",
-            date: new Date().toISOString()
-          }),
-        });
+      // تحديث قائمة العملاء
+      await fetchCustomers();
 
-        if (!transactionResponse.ok) {
-          throw new Error("Failed to create opening balance transaction");
-        }
-      }
-
-      fetchCustomers();
-      setShowForm(false);
-      setFormData({
-        name: "",
-        phone: "",
-        email: "",
-        address: "",
-        accounts: [{ id: 1, currency: "SAR", balance: "0", type: "credit" }]
-      });
-      setEditingCustomer(null);
-      setSuccessMessage(editingCustomer ? "تم تحديث بيانات العميل بنجاح" : "تم إضافة العميل بنجاح");
+      // عرض رسالة النجاح
+      // toast.success('تم إضافة العميل بنجاح', {
+      //   duration: 3000,
+      //   position: 'bottom-center',
+      // });
+      
+      resetFormData();
+      setShowAddForm(false);
+      setSuccessMessage("تم إضافة العميل بنجاح'");
       setTimeout(() => setSuccessMessage(null), 1500);
-    } catch (error) {
-      console.error("Error saving customer:", error);
-      setErrorMessage("حدث خطأ أثناء حفظ بيانات العميل");
+    
+      // إعادة تعيين النموذج وإغلاقه
+      // setTimeout(() => {
+      //   setFormData({
+      //     name: '',
+      //     phone: '',
+      //     email: '',
+      //     address: '',
+      //     accounts: [{ id: 1, currency: 'SAR', balance: '0', type: 'credit' }]
+      //   });
+      //   setShowAddForm(false);
+      // }, 500);
+
+    } catch (err) {
+      console.error('Error adding customer:', err);
+      toast.error(err instanceof Error ? err.message : 'حدث خطأ أثناء إضافة العميل', {
+        duration: 3000,
+        position: 'bottom-center',
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -398,7 +410,7 @@ export default function CustomersPage() {
         return;
       }
 
-      const updateData = {
+      const updateData = { 
         name: formData.name.trim(),
         phone: formData.phone?.trim() || null,
         email: formData.email?.trim() || null,
@@ -406,10 +418,11 @@ export default function CustomersPage() {
         accounts: [{
           id: formData.accounts[0]?.id || 0,
           currency: "SAR",
-          balance: parseInt(formData.accounts[0]?.balance || "0"),
+          balance: Number(formData.accounts[0]?.balance ?? 0), // ✅ تصحيح هنا
           type: formData.accounts[0]?.type || "credit"
         }]
       };
+      
 
       console.log('Updating customer with data:', updateData);
 
@@ -461,15 +474,28 @@ export default function CustomersPage() {
   };
 
   // Handle account changes
-  const handleAccountChange = (index: number, field: string, value: string) => {
+  // const handleAccountChange = (index: number, field: string, value: string) => {
+  //   setFormData(prev => ({
+  //     ...prev,
+  //     accounts: prev.accounts.map((acc, i) =>
+  //       i === index ? { ...acc, [field]: value } : acc
+  //     )
+  //   }));
+  // };
+  const handleAccountChange = (index: number, field: string, value: string | number) => {
     setFormData(prev => ({
       ...prev,
       accounts: prev.accounts.map((acc, i) =>
-        i === index ? { ...acc, [field]: value } : acc
+        i === index
+          ? {
+              ...acc,
+              [field]: field === 'balance' ? Number(value) : value
+            }
+          : acc
       )
     }));
   };
-
+  
   // حذف عميل
   const handleDelete = async (customer: Customer) => {
     if (!confirm("هل أنت متأكد من حذف هذا العميل؟")) {
@@ -507,9 +533,9 @@ export default function CustomersPage() {
       accounts: customer.accounts?.length ? customer.accounts.map(acc => ({
         id: acc.id,
         currency: acc.currency,
-        balance: acc.balance.toString(),
+        balance: acc.balance,
         type: acc.type
-      })) : [{ id: 0, currency: "SAR", balance: "0", type: "credit" }]
+      })) : [{ id: 0, currency: "SAR", balance: 0, type: "credit" }]
     });
     setShowForm(true);
   };
@@ -521,7 +547,7 @@ export default function CustomersPage() {
       phone: "",
       email: "",
       address: "",
-      accounts: [{ id: 0, currency: "SAR", balance: "0", type: "credit" }]
+      accounts: [{ id: 0, currency: "SAR", balance: 0, type: "credit" }]
     });
   };
 
@@ -951,7 +977,15 @@ export default function CustomersPage() {
                     <td className="py-2 px-4 text-sm hidden sm:table-cell">
                       {customer.address || "-"}
                     </td>
-                    
+                    <td className="py-2 px-4 text-sm font-medium whitespace-nowrap">
+  <div className="flex flex-col gap-1">
+    {customer.accounts.map(account => (
+      <span key={account.currency} className="text-xs bg-gray-100 px-2 py-1 rounded">
+        {account.balance.toLocaleString()} {account.currency}
+      </span>
+    ))}
+  </div>
+</td>
                     <td className="py-2" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1">
                         <button
@@ -988,11 +1022,11 @@ export default function CustomersPage() {
           setEditingCustomer(null);
           setFormData({ name: "", phone: "", email: "", address: "", accounts: [{ id: 1, currency: "SAR", balance: "0", type: "credit" }] });
         }}
-        className="fixed bottom-20 left-20 bg-red-950 text-white p-4 rounded-full shadow-lg hover:bg-red-900 transition-all duration-300 z-50 flex items-center justify-center group"
-        aria-label="إضافة عميل جديد"
+        className="fixed bottom-20 left-20 bg-red-950 text-white p-4 rounded-full shadow-lg hover:bg-red-900 transition-colors"
+        title="إضافة عميل جديد"
       >
         <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
         </svg>
         <span className="absolute right-full transform translate-x-2 bg-red-950 text-white px-3 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap mr-2">
           إضافة عميل جديد
@@ -1016,7 +1050,7 @@ export default function CustomersPage() {
                       phone: "",
                       email: "",
                       address: "",
-                      accounts: [{ id: 0, currency: "SAR", balance: "0", type: "credit" }]
+                      accounts: [{ id: 0, currency: "SAR", balance: 0, type: "credit" }]
                     });
                   }}
                   className="text-white hover:text-gray-200 transition-colors"
@@ -1074,58 +1108,115 @@ export default function CustomersPage() {
                       className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-950 focus:border-red-950"
                     />
                   </div>
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      الرصيد الافتتاحي
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          inputMode="decimal"
-                        value={formData.accounts[0].balance}
-                        onChange={(e) => handleAccountChange(0, 'balance', e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-950 focus:border-red-950"
-                     
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const balance = Math.abs(Number(formData.accounts[0].balance));
-                            handleAccountChange(0, 'balance', balance.toString());
-                            handleAccountChange(0, 'type', 'credit');
-                          }}
-                          className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                            formData.accounts[0].type === 'credit'
-                              ? 'bg-green-600 text-white'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                          }`}
-                        >
-                          دائن
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const balance = Math.abs(Number(formData.accounts[0].balance));
-                            handleAccountChange(0, 'balance', (-balance).toString());
-                            handleAccountChange(0, 'type', 'debit');
-                          }}
-                          className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                            formData.accounts[0].type === 'debit'
-                              ? 'bg-red-600 text-white'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                          }`}
-                        >
-                          مدين
-                        </button>
-                      </div>
-                    </div>
-                    <p className="mt-1 text-sm text-gray-500">
-                      {formData.accounts[0].type === 'credit' ? 'رصيد دائن (للعميل)' : 'رصيد مدين (على العميل)'}
-                    </p>
-                  </div>
+                  
+
+  
+  {/* قسم الحسابات */}
+  {formData.accounts.map((account, index) => (
+    <div key={account.currency} className="mb-4">
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        الرصيد الافتتاحي 
+      </label>
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+        <input
+  type="number"
+  min="0"
+  step="0.01"
+  inputMode="decimal"
+  value={account.balance}
+  onChange={(e) => {
+    const value = e.target.value;
+    handleAccountChange(index, 'balance', value);
+  }}
+  className="w-full p-2 pr-8 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-950 focus:border-red-950"
+  placeholder="0.00"
+/>
+
+          {/* <input
+            type="Number"
+           
+             min="0"
+            inputMode="decimal"
+            value={account.balance !== undefined && account.balance !== null ? Number(account.balance) : 0}
+
+
+            onChange={(e) => {
+            const value = Math.max(0, Number(e.target.value));
+              handleAccountChange(index, 'balance', value.toString());
+            }}
+            className="w-full p-2 pr-8 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-950 focus:border-red-950"
+            placeholder="0.00"
+          /> */}
+          {/* <input
+  type="number"
+  value={account.balance}
+  onChange={(e) => {
+    const newBalance = parseFloat(e.target.value) || 0;
+    const updatedAccounts = [...formData.accounts];
+    updatedAccounts[index].balance = newBalance;
+
+    setFormData({ ...formData, accounts: updatedAccounts });
+  }}
+/> */}
+          
+          <span className="absolute right-28 top-3 text-gray-500">
+            {accountType === "SAR" ? "SAR" : "LOCAL"}
+          </span>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const balance = Math.abs(Number(account.balance));
+              handleAccountChange(index, 'balance', balance.toString());
+              handleAccountChange(index, 'type', 'credit');
+            }}
+            className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+              account.type === 'credit'
+                ? 'bg-green-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            دائن
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const balance = Math.abs(Number(account.balance));
+              handleAccountChange(index, 'balance', (-balance).toString());
+              handleAccountChange(index, 'type', 'debit');
+            }}
+            className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+              account.type === 'debit'
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            مدين
+          </button>
+        </div>
+      </div>
+      <p className="mt-1 text-sm text-gray-500">
+        {account.type === 'credit' 
+          ? `رصيد دائن (${accountType === "SAR" ? "ريال سعودي" : "محلي"})`
+          : `رصيد مدين (${accountType === "SAR" ? "ريال سعودي" : "محلي"})`}
+      </p>
+    </div>
+  ))}
+  {/* نوع الحساب */}
+  <div>
+    <label className="block text-gray-700 text-sm font-medium mb-2">نوع الحساب</label>
+    <select
+      value={accountType}
+      onChange={(e) => setAccountType(e.target.value as 'LOCAL' | 'SAR')}
+      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-950 focus:border-red-950"
+    >
+      <option value="LOCAL">حساب محلي</option>
+      <option value="SAR">حساب بالريال السعودي</option>
+    </select>
+  </div>
+
                 </div>
 
                 <div className="flex justify-end mx-2 mt-4">
@@ -1135,19 +1226,6 @@ export default function CustomersPage() {
                   >
                     {editingCustomer ? "تحديث" : "إضافة"}
                   </button>
-                  <button
-                  onClick={() => {
-                    setShowForm(false);
-                    setEditingCustomer(null);
-                    setFormData({
-                      name: "",
-                      phone: "",
-                      email: "",
-                      address: "",
-                      accounts: [{ id: 0, currency: "SAR", balance: "0", type: "credit" }]
-                    });
-                  }}
-                  className=" mx-2 px-4 py-2 ml-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-500 transition-colors">الغاء</button>
                 </div>
               </form>
             </div>

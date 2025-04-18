@@ -1,15 +1,34 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "../../../../lib/prisma";
- // eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { getServerSession } from "next-auth";
+import { authOptions } from "../auth/[...nextauth]/route";
+
 // جلب جميع المعاملات
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.storeId) {
+      return NextResponse.json(
+        { error: "لم يتم العثور على متجر مرتبط بحسابك" },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const customerId = searchParams.get("customerId");
 
-    const whereClause = customerId ? {
-      customerId: parseInt(customerId)
-    } : {};
+    const whereClause = customerId
+      ? {
+          customerId: parseInt(customerId),
+          customer: {
+            storeId: session.user.storeId
+          }
+        }
+      : {
+          customer: {
+            storeId: session.user.storeId
+          }
+        };
 
     const transactions = await prisma.transaction.findMany({
       where: whereClause,
@@ -28,7 +47,10 @@ export async function GET(req: Request) {
     // تنسيق البيانات قبل إرجاعها
     const formattedTransactions = transactions.map(transaction => {
       // حساب إجمالي رصيد العميل من جميع حساباته
-      const customerBalance = transaction.customer?.accounts.reduce((total, account) => total + account.balance, 0) || 0;
+      const customerBalance = transaction.customer?.accounts.reduce(
+        (total, account) => total + account.balance,
+        0
+      ) || 0;
 
       return {
         ...transaction,
@@ -50,8 +72,16 @@ export async function GET(req: Request) {
 }
 
 // إضافة معاملة جديدة
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.storeId) {
+      return NextResponse.json(
+        { error: "لم يتم العثور على متجر مرتبط بحسابك" },
+        { status: 401 }
+      );
+    }
+
     const data = await req.json();
     const { customerId, type, amount, description } = data;
 
@@ -62,63 +92,57 @@ export async function POST(req: Request) {
       );
     }
 
-    // التحقق من وجود العميل وحسابه
-    const customer = await prisma.customer.findUnique({
-      where: { id: customerId },
-      include: { accounts: true }
+    // التحقق من وجود العميل وأنه تابع لنفس المتجر
+    const customer = await prisma.customer.findFirst({
+      where: {
+        id: customerId,
+        storeId: session.user.storeId
+      },
+      include: {
+        accounts: true
+      }
     });
 
     if (!customer) {
       return NextResponse.json(
-        { error: "العميل غير موجود" },
+        { error: "العميل غير موجود أو غير مصرح لك بالوصول إليه" },
         { status: 404 }
       );
     }
 
-    if (!customer.accounts?.[0]) {
-      return NextResponse.json(
-        { error: "العميل ليس لديه حساب" },
-        { status: 400 }
-      );
-    }
-
-    const account = customer.accounts[0];
-
-    // إضافة المعاملة وتحديث الرصيد في نفس الوقت
+    // إنشاء المعاملة وتحديث رصيد العميل في نفس الوقت
     const result = await prisma.$transaction(async (prisma) => {
       // إنشاء المعاملة
       const transaction = await prisma.transaction.create({
         data: {
           customerId,
           type,
-          amount,
-          description: description || null
+          amount: parseFloat(amount.toString()),
+          description: description || '',
+          date: new Date(),
         }
       });
 
-      // حساب الرصيد الجديد
-      const allTransactions = await prisma.transaction.findMany({
-        where: { customerId }
-      });
+      // تحديث رصيد حساب العميل
+      if (customer.accounts[0]) {
+        const newBalance =
+          type === 'debit'
+            ? customer.accounts[0].balance + parseFloat(amount.toString())
+            : customer.accounts[0].balance - parseFloat(amount.toString());
 
-      const newBalance = allTransactions.reduce((balance, t) => {
-        if (t.type === 'debit') {
-          return balance + t.amount;
-        } else { // credit
-          return balance - t.amount;
-        }
-      }, 0);
-
-      // تحديث رصيد الحساب
-      await prisma.customerAccount.update({
-        where: { id: account.id },
-        data: { balance: newBalance }
-      });
+        await prisma.customerAccount.update({
+          where: { id: customer.accounts[0].id },
+          data: { balance: newBalance }
+        });
+      }
 
       return transaction;
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json({
+      message: "تم إضافة المعاملة بنجاح",
+      transaction: result
+    });
   } catch (error) {
     console.error("Error creating transaction:", error);
     return NextResponse.json(
